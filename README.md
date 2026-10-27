@@ -1,4 +1,4 @@
-# Memdoor Workflow
+# Memdoor
 
 Review pull requests, fix failing tests and write release notes with an AI agent, as one step of a GitHub job, on your own model key. Nothing to add to your repository.
 
