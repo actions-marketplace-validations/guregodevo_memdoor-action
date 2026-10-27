@@ -1,0 +1,58 @@
+# Spike: the review with no key at all, everything in the action. With
+# `local-model:` the action runs the model inside the job (Ollama on the
+# runner's CPU) and connects Memdoor to it; pr-review then runs on a change
+# that plants an off-by-one. The question: does a free runner review a PR in
+# acceptable time, and does a small model find the bug?
+name: Spike - review on a local model
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: The Ollama model the review runs on
+        default: qwen3.5:9b
+
+jobs:
+  local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      MEMDOOR_CI: '1'
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: A project whose last commit plants an off-by-one
+        run: |
+          echo "T0=$(date +%s)" >> "$GITHUB_ENV"
+          P="$RUNNER_TEMP/calc"; mkdir -p "$P" && cd "$P" && git init -q -b main
+          g() { git -c user.name=ci -c user.email=ci@example.test "$@"; }
+          printf 'module calc\n\ngo 1.22\n' > go.mod
+          printf 'package calc\n\n// Sum adds every value in xs.\nfunc Sum(xs []int) int {\n\tt := 0\n\tfor i := 0; i < len(xs); i++ {\n\t\tt += xs[i]\n\t}\n\treturn t\n}\n' > calc.go
+          g add -A && g commit -qm "calc: Sum"
+          printf 'package calc\n\n// Sum adds every value in xs.\nfunc Sum(xs []int) int {\n\tt := 0\n\tfor i := 0; i < len(xs)-1; i++ {\n\t\tt += xs[i]\n\t}\n\treturn t\n}\n\n// Mean is the average of xs.\nfunc Mean(xs []int) int {\n\treturn Sum(xs) / len(xs)\n}\n' > calc.go
+          g commit -qam "calc: add Mean, tidy Sum loop"
+
+      - name: pr-review on a model inside the job (no key)
+        id: review
+        continue-on-error: true
+        uses: ./
+        with:
+          workflow: pr-review
+          local-model: ${{ inputs.model }}
+          working-directory: ${{ runner.temp }}/calc
+          timeout: 100m
+
+      - name: Timings
+        if: always()
+        run: |
+          {
+            echo "### Spike: pr-review on \`${{ inputs.model }}\` inside the job, no key"
+            echo "- total: $(( $(date +%s) - T0 )) s (setup + model + review; per step times in the log)"
+            echo "- exit-code: ${{ steps.review.outputs.exit-code }} (2 = a P0 found, which is the planted bug)"
+            echo "- runner: $(nproc) vCPU, $(free -g | awk '/Mem:/{print $2}') GB RAM"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "--- ollama log tail"; tail -15 "$RUNNER_TEMP/memdoor-ollama.log" 2>/dev/null || true
+          echo "--- memdoor errors"; memdoor logs errors --since 2h 2>&1 | tail -20 || true

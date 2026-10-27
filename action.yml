@@ -64,6 +64,9 @@ inputs:
   model:
     description: MEMDOOR_MODEL — pin the model the agents answer with
     default: ''
+  local-model:
+    description: 'No key at all: a model that runs inside the job, by its Ollama name (e.g. qwen3.5:9b). The action sets up Ollama on the runner, caches and pulls the model, and connects it (memdoor connect local). Slow on a CPU runner; small models answer faster'
+    default: ''
 
 outputs:
   run-id:
@@ -89,6 +92,31 @@ runs:
         curl -fsSL https://memdoor.ai/install.sh | bash
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+    # A model inside the job (local-model): Ollama on the runner, the model
+    # cached between runs, served on localhost only; nothing leaves the job.
+    - name: Model cache
+      if: inputs.local-model != ''
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/../memdoor-ollama-models
+        key: memdoor-ollama-${{ runner.os }}-${{ inputs.local-model }}
+
+    - name: Local model
+      if: inputs.local-model != ''
+      shell: bash
+      env:
+        LOCAL_MODEL: ${{ inputs.local-model }}
+      run: |
+        models="$RUNNER_TEMP/../memdoor-ollama-models"; mkdir -p "$models"
+        if ! command -v ollama >/dev/null; then
+          curl -fsSL https://ollama.com/install.sh | sh >/dev/null
+          sudo systemctl stop ollama 2>/dev/null || true
+        fi
+        OLLAMA_MODELS="$models" OLLAMA_HOST=127.0.0.1:11434 OLLAMA_CONTEXT_LENGTH=32768 \
+          nohup ollama serve > "$RUNNER_TEMP/memdoor-ollama.log" 2>&1 &
+        for i in $(seq 1 60); do curl -sf http://127.0.0.1:11434/api/version >/dev/null && break; sleep 1; done
+        OLLAMA_MODELS="$models" ollama pull "$LOCAL_MODEL"
+
     - name: Run the workflow
       id: run
       shell: bash
@@ -103,20 +131,37 @@ runs:
         KEY_OPENAI: ${{ inputs.openai-api-key }}
         KEY_GEMINI: ${{ inputs.gemini-api-key }}
         WF_MODEL: ${{ inputs.model }}
+        LOCAL_MODEL: ${{ inputs.local-model }}
         # The runner's gateway is for this job only: no door on the network.
         MEMDOOR_HOST: localhost
         MEMDOOR_NO_BROWSER: '1'
       run: |
         export PATH="$HOME/.local/bin:$PATH"
-        # A key given as an input wins; one set in the job's env is kept.
-        [ -n "$KEY_OPENROUTER" ] && export OPEN_ROUTER_API_KEY="$KEY_OPENROUTER"
-        [ -n "$KEY_ANTHROPIC" ] && export ANTHROPIC_API_KEY="$KEY_ANTHROPIC"
-        [ -n "$KEY_OPENAI" ] && export OPENAI_API_KEY="$KEY_OPENAI"
-        [ -n "$KEY_GEMINI" ] && export GEMINI_API_KEY="$KEY_GEMINI"
-        [ -n "$WF_MODEL" ] && export MEMDOOR_MODEL="$WF_MODEL"
+        if [ -n "$LOCAL_MODEL" ]; then
+          # Local OR a key, never both: a local run sees no provider key at all.
+          if [ -n "$KEY_OPENROUTER$KEY_ANTHROPIC$KEY_OPENAI$KEY_GEMINI" ]; then
+            echo "::warning::local-model is set: the key inputs are ignored, the review runs on $LOCAL_MODEL inside the job"
+          fi
+          unset OPEN_ROUTER_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY \
+                GROQ_API_KEY DEEPSEEK_API_KEY XAI_API_KEY GROK_API_KEY BASETEN_API_KEY TYPESAFE_API_KEY \
+                MEMDOOR_SYSTEMONE_API_KEY AI_GATEWAY_TOKEN
+        else
+          # A key given as an input wins; one set in the job's env is kept.
+          [ -n "$KEY_OPENROUTER" ] && export OPEN_ROUTER_API_KEY="$KEY_OPENROUTER"
+          [ -n "$KEY_ANTHROPIC" ] && export ANTHROPIC_API_KEY="$KEY_ANTHROPIC"
+          [ -n "$KEY_OPENAI" ] && export OPENAI_API_KEY="$KEY_OPENAI"
+          [ -n "$KEY_GEMINI" ] && export GEMINI_API_KEY="$KEY_GEMINI"
+          [ -n "$WF_MODEL" ] && export MEMDOOR_MODEL="$WF_MODEL"
+        fi
         unset KEY_OPENROUTER KEY_ANTHROPIC KEY_OPENAI KEY_GEMINI
 
         memdoor --version
+        if [ -n "$LOCAL_MODEL" ]; then
+          # The first command starts the gateway and sets the runner up (no
+          # model yet, so it answers no); then the local model is its provider.
+          memdoor run "ok" >/dev/null 2>&1 || true
+          memdoor connect local --base http://127.0.0.1:11434/v1 --model "$LOCAL_MODEL"
+        fi
         args=(workflow run "$WF_NAME" --dir .)
         [ -n "$WF_TIMEOUT" ] && args+=(--timeout "$WF_TIMEOUT")
         [ -n "$WF_PARTITION" ] && args+=(--partition "$WF_PARTITION")
