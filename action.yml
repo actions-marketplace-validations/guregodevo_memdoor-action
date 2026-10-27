@@ -18,7 +18,7 @@
 # Trigger on pull_request, NEVER pull_request_target: GitHub gives a fork's
 # pull request no secrets, so a stranger's code never runs beside your key,
 # while pull_request_target runs their code with your secrets. Memdoor keeps
-# model keys out of the environment of every command the agent runs
+# model keys out of the environment of every command the agent or a workflow step runs
 # (shell.Env in guregodevo/memdoor), a second line, not the boundary.
 #
 # Exit: 0 done, 2 a task failed, 1 stopped (timeout), 3 a gate nobody in
