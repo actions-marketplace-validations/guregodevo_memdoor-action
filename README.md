@@ -1,6 +1,6 @@
 # Memdoor
 
-Review pull requests, fix failing tests and write release notes with an AI agent, as one step of a GitHub job, on your own model key. Nothing to add to your repository.
+Review pull requests, fix failing tests and write release notes with an AI agent, as one step of a GitHub job, on your own model key, or with no key on a model inside the job. Nothing to add to your repository.
 
 ```yaml
 on: pull_request
@@ -27,6 +27,28 @@ The runner installs [Memdoor](https://memdoor.ai) (one binary), runs the workflo
 
 The review, the fix's report or the notes are shown in the job summary.
 
+### No key: a model inside the job
+
+`local-model:` runs the review on a model inside the runner instead of a key: the action sets up [Ollama](https://ollama.com), downloads and caches the model, and connects Memdoor to it. No secret, no API account, nothing leaves the runner.
+
+```yaml
+      - uses: guregodevo/memdoor-action@v1
+        with:
+          workflow: pr-review
+          local-model: qwen3.5:9b
+```
+
+**A free first pass, not a reviewer.** A free runner has 4 CPUs and 16 GB, so a 9B model is about the largest that fits, and it reviews in one model call (no agent, nothing run to check a finding). What we measured on `ubuntu-latest`:
+
+| | `qwen3.5:9b`, no key |
+|---|---|
+| An obvious bug (a loop that skips the last element) | caught as a P0, review in 54 s |
+| A subtle bug (a path built from a lowercased file name) | missed |
+| The same change done correctly | no false P0 |
+| Time | about 5 minutes a job, most of it the first download |
+
+It catches the obvious and stays quiet on correct code. For a review that opens the files around the change and runs the code to prove a finding, use a key. The model is cached per branch: GitHub shares a cache saved on the default branch, so run the workflow once on a push to `main` and every pull request starts from it (6.6 GB otherwise, each time). Smaller models are not faster here: `qwen3:4b` wrote ten minutes of review where the 9B wrote one.
+
 ### Your own workflow
 
 `workflow: <name>` runs `.memdoor/workflows/<name>/` from your repository: one YAML file per step (a command, a model call, or an agent turn), each done when its target exists. Ask the Memdoor coder to write one, or see [Workflows](https://memdoor.ai/docs/workflows).
@@ -43,6 +65,7 @@ The review, the fix's report or the notes are shown in the job summary.
 | `timeout` | `2h` | A clock on the whole run, e.g. `45m` |
 | `partition` | | Resume an earlier run, or a version for `release-notes` (`${{ github.ref_name }}`) |
 | `stop-at-gate` | `true` | A workflow's approval gate ends the job with exit 3 (nobody in CI can approve); `false` waits for an approval from another door, bounded by `timeout` |
+| `local-model` | | No key: a model inside the job, by its Ollama name (`qwen3.5:9b`). A free first pass; see above |
 | `install` | `true` | `false` uses the `memdoor` already on `PATH` |
 
 ## Outputs and exit codes

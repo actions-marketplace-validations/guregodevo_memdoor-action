@@ -65,7 +65,7 @@ inputs:
     description: MEMDOOR_MODEL — pin the model the agents answer with
     default: ''
   local-model:
-    description: 'No key at all: a model that runs inside the job, by its Ollama name (e.g. qwen3:4b). The action sets up Ollama on the runner, caches and pulls the model, and connects it (memdoor connect local). A CPU is slow, so pr-review reviews in one model call (MEMDOOR_LEAN) instead of the agent loop'
+    description: 'No key: a model inside the job, by its Ollama name (qwen3.5:9b). The action sets up Ollama on the runner, caches the model and connects it. A free first pass that catches obvious mistakes, not a reviewer: on a CPU, pr-review reviews in one model call and runs nothing to check a finding'
     default: ''
 
 outputs:
