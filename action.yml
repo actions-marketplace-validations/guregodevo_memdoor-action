@@ -65,7 +65,7 @@ inputs:
     description: MEMDOOR_MODEL — pin the model the agents answer with
     default: ''
   local-model:
-    description: 'No key at all: a model that runs inside the job, by its Ollama name (e.g. qwen3.5:9b). The action sets up Ollama on the runner, caches and pulls the model, and connects it (memdoor connect local). Slow on a CPU runner; small models answer faster'
+    description: 'No key at all: a model that runs inside the job, by its Ollama name (e.g. qwen3:4b). The action sets up Ollama on the runner, caches and pulls the model, and connects it (memdoor connect local). A CPU is slow, so pr-review reviews in one model call (MEMDOOR_LEAN) instead of the agent loop'
     default: ''
 
 outputs:
@@ -98,7 +98,7 @@ runs:
       if: inputs.local-model != ''
       uses: actions/cache@v4
       with:
-        path: ${{ runner.temp }}/../memdoor-ollama-models
+        path: ~/.memdoor-ollama
         key: memdoor-ollama-${{ runner.os }}-${{ inputs.local-model }}
 
     - name: Local model
@@ -107,7 +107,7 @@ runs:
       env:
         LOCAL_MODEL: ${{ inputs.local-model }}
       run: |
-        models="$RUNNER_TEMP/../memdoor-ollama-models"; mkdir -p "$models"
+        models="$HOME/.memdoor-ollama"; mkdir -p "$models"
         if ! command -v ollama >/dev/null; then
           curl -fsSL https://ollama.com/install.sh | sh >/dev/null
           sudo systemctl stop ollama 2>/dev/null || true
@@ -142,6 +142,9 @@ runs:
           if [ -n "$KEY_OPENROUTER$KEY_ANTHROPIC$KEY_OPENAI$KEY_GEMINI" ]; then
             echo "::warning::local-model is set: the key inputs are ignored, the review runs on $LOCAL_MODEL inside the job"
           fi
+          # A model on the runner's CPU: a built-in with a one-call version
+          # (pr-review's review-lean) takes it instead of the agent loop.
+          export MEMDOOR_LEAN=1
           unset OPEN_ROUTER_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY \
                 GROQ_API_KEY DEEPSEEK_API_KEY XAI_API_KEY GROK_API_KEY BASETEN_API_KEY TYPESAFE_API_KEY \
                 MEMDOOR_SYSTEMONE_API_KEY AI_GATEWAY_TOKEN
