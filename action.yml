@@ -65,7 +65,7 @@ inputs:
     description: MEMDOOR_MODEL — pin the model the agents answer with
     default: ''
   local-model:
-    description: 'No key: a model inside the job, by its mlx-community name (Qwen3-8B-4bit). The action runs it with janis (github.com/guregodevo/janis, one file) on the runner, caches it and connects it; Linux runners. A free first pass that catches obvious mistakes, not a reviewer: on a CPU, pr-review reviews in one model call and runs nothing to check a finding'
+    description: 'No key: a model inside the job, by its mlx-community name (Qwen3.5-9B-4bit). The action runs it with janis (github.com/guregodevo/janis, one file) on the runner, caches it and connects it; Linux runners. A free first pass that catches obvious mistakes, not a reviewer: on a CPU, pr-review reviews in one model call and runs nothing to check a finding'
     default: ''
 
 outputs:
@@ -115,7 +115,7 @@ runs:
         case "$LOCAL_MODEL" in
           # The Ollama names the first version of this input took.
           qwen3.5:9b) m=Qwen3.5-9B-4bit ;; qwen3:8b) m=Qwen3-8B-4bit ;; qwen3:4b) m=Qwen3-4B-4bit ;;
-          *:*) echo "::error::local-model is an mlx-community name (Qwen3-8B-4bit), not $LOCAL_MODEL"; exit 1 ;;
+          *:*) echo "::error::local-model is an mlx-community name (Qwen3.5-9B-4bit), not $LOCAL_MODEL"; exit 1 ;;
           *) m=${LOCAL_MODEL#mlx-community/} ;;
         esac
         janis="$RUNNER_TEMP/janis"
