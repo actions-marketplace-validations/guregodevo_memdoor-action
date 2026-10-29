@@ -44,10 +44,10 @@ The review, the fix's report or the notes are shown in the job summary.
 |---|---|---|
 | An obvious bug (a loop that skips the last layer) | P0, the right reason (2 of 2 runs) | P0, the right reason |
 | A subtle bug (a path built from a lowercased file name) | P0, the right reason (2 of 2) | P0, proved by a test it wrote |
-| The same change done correctly | **a false P0** (2 of 2): it filed the change's own fix as the fault | passed |
+| The same change done correctly | **a false P0** (2 of 2): it filed the change's own fix as the fault; with the re-check below, 1 of 2 | passed |
 | Review / job | 45 to 90 s / 2 to 3 minutes, most of it the model's download | about 40 s / about 1 minute |
 
-It catches bugs, and it can fail a correct pull request: read its P0 before you believe it. `Qwen3.5-9B-4bit` is the quiet one (passed the correct change, missed the subtle bug). For a review that opens the files around the change and runs the code to prove a finding, use a key. The model (any mlx-community name) is cached per branch: GitHub shares a cache saved on the default branch, so run the workflow once on a push to `main` and every pull request starts from it.
+It catches bugs, and it can fail a correct pull request: read its P0 before you believe it. Each P0 gets a second look on the same model (is it a problem of the code after the change, or before it?), and one about the code before is demoted to P2: on the correct change that turned one of two runs green; the other's "P0" was praise, which the question does not catch. `Qwen3.5-9B-4bit` is the quiet one (passed the correct change, missed the subtle bug). For a review that opens the files around the change and runs the code to prove a finding, use a key. The model (any mlx-community name) is cached per branch: GitHub shares a cache saved on the default branch, so run the workflow once on a push to `main` and every pull request starts from it.
 
 ### Your own workflow
 
