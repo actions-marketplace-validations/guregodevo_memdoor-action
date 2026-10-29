@@ -10,9 +10,10 @@
 #       workflow: pr-review
 #       openrouter-api-key: ${{ secrets.OPEN_ROUTER_API_KEY }}
 #
-# Built in, with no file in your repo: pr-review (fails on a blocker only),
-# fix-tests (leaves the fix in the working tree), release-notes. A workflow
-# of your own is .memdoor/workflows/<name>/ in the repo.
+# Built in, with no file in your repo: pr-review and security-review (fail on
+# a blocker only), write-tests, pr-description, explain-failure (on a failed
+# workflow_run), issue-triage, fix-tests (leaves the fix in the working tree),
+# release-notes. A workflow of your own is .memdoor/workflows/<name>/ in the repo.
 #
 # Your key: the agent runs the repo's code on the runner, where the key is.
 # Trigger on pull_request, NEVER pull_request_target: GitHub gives a fork's
@@ -24,7 +25,7 @@
 # Exit: 0 done, 2 a task failed, 1 stopped (timeout), 3 a gate nobody in
 # the job can approve (stop-at-gate, the default; its review is in the log).
 name: Memdoor
-description: Review PRs, fix failing tests and write release notes with an AI agent, on your own model key
+description: Review PRs, write tests, explain CI failures, triage issues and more with an AI agent, on your key or a local model
 author: guregodevo
 branding:
   icon: git-merge
@@ -64,6 +65,9 @@ inputs:
   model:
     description: MEMDOOR_MODEL — pin the model the agents answer with
     default: ''
+  github-token:
+    description: 'GH_TOKEN for the run: the workflows that read GitHub (explain-failure reads a failed run''s logs, issue-triage the issue and the labels) use gh with it. The job''s own token by default; what it may do is what the job''s permissions grant'
+    default: ${{ github.token }}
   local-model:
     description: 'No key: a model inside the job, by its mlx-community name (Qwen3-8B-4bit). The action runs it with janis (github.com/guregodevo/janis, one file) on the runner, caches it and connects it; Linux runners. A free first pass that catches obvious mistakes, not a reviewer: on a CPU, pr-review reviews in one model call and runs nothing to check a finding'
     default: ''
@@ -145,6 +149,7 @@ runs:
         KEY_GEMINI: ${{ inputs.gemini-api-key }}
         WF_MODEL: ${{ inputs.model }}
         LOCAL_MODEL: ${{ inputs.local-model }}
+        GH_TOKEN: ${{ inputs.github-token }}
         # The runner's gateway is for this job only: no door on the network.
         MEMDOOR_HOST: localhost
         MEMDOOR_NO_BROWSER: '1'

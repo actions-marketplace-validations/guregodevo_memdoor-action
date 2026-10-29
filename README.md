@@ -19,13 +19,43 @@ The runner installs [Memdoor](https://memdoor.ai) (one binary), runs the workflo
 
 ## Built-in workflows
 
-| `workflow:` | What it does | The job fails when |
-|---|---|---|
-| `pr-review` | Reviews the pull request against its base branch, opens the files around it, verifies each finding by running the code, and writes a review with **P0** / P1 / P2 findings. | there is a P0: something that must not merge |
-| `fix-tests` | Finds the test command (`go test`, `cargo test`, `npm test`, pytest, `make test`, or `MEMDOOR_TEST_COMMAND`), fixes the code until it passes, and leaves the fix in the working tree with a report. Skipped, no model called, when the tests already pass. | the tests still fail |
-| `release-notes` | Turns the commits since the previous tag into Added / Changed / Fixed, in words a user notices. | — |
+Eight, each on your key or on a model inside the job (`local-model:`, below): with a key an agent reads the code around the change and runs it; with a local model each one is a single model call with everything it needs in the prompt.
 
-The review, the fix's report or the notes are shown in the job summary.
+| `workflow:` | Run it on | What it does | The job fails when |
+|---|---|---|---|
+| `pr-review` | `pull_request` | Reviews the change against its base branch and writes **P0** / P1 / P2 findings. With a key it opens the files around the change and runs the code to check a finding. | a P0: something that must not merge |
+| `security-review` | `pull_request` | The same, for security only: secrets committed, injection, path traversal, missing authorization, unsafe deserialization, SSRF, weak crypto, an exploitable CI workflow. | an exploitable P0 |
+| `write-tests` | `pull_request` | Writes tests for the functions the change touches (normal case, edge case, the change's own case) and leaves them in the working tree. Never edits an existing test. | an existing test already fails with the change, or a new test shows the change is wrong |
+| `pr-description` | `pull_request` | Writes the pull request's description from the diff and the commits: title, What, Why, How to test, Risk. | — |
+| `explain-failure` | `workflow_run` (`types: [completed]`, on failure) | Reads the failed run's logs (`gh run view --log-failed`) and the commit's diff, and writes the Cause (the failing step, file:line), Why, and the Fix. | — |
+| `issue-triage` | `issues` (`types: [opened]`) | Suggests labels (only ones the repository has), the kind, a summary, possible duplicates among open issues, and what the reporter should add. Applies nothing. | — |
+| `fix-tests` | `push` or by hand | Finds the test command (`go test`, `cargo test`, `npm test`, pytest, `make test`, or `MEMDOOR_TEST_COMMAND`), fixes the code until it passes, and leaves the fix in the working tree with a report. | the tests still fail |
+| `release-notes` | a tag push (`partition: ${{ github.ref_name }}`) | Turns the commits since the previous tag into Added / Changed / Fixed, in words a user notices. | — |
+
+The result is in the job summary. Nothing is committed, pushed or posted.
+
+```yaml
+# explain a failed CI run
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  explain:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: guregodevo/memdoor-action@v1
+        with:
+          workflow: explain-failure
+          openrouter-api-key: ${{ secrets.OPEN_ROUTER_API_KEY }}
+```
+
+`explain-failure` and `issue-triage` read GitHub with `gh` on the job's own token (`github-token`, `actions: read` / `issues: read`).
 
 ### No key: a model inside the job
 
@@ -65,6 +95,7 @@ It catches bugs, and it can fail a correct pull request: read its P0 before you 
 | `timeout` | `2h` | A clock on the whole run, e.g. `45m` |
 | `partition` | | Resume an earlier run, or a version for `release-notes` (`${{ github.ref_name }}`) |
 | `stop-at-gate` | `true` | A workflow's approval gate ends the job with exit 3 (nobody in CI can approve); `false` waits for an approval from another door, bounded by `timeout` |
+| `github-token` | the job's token | `GH_TOKEN` for the workflows that read GitHub (`explain-failure`, `issue-triage`); what it may do is what the job's `permissions` grant |
 | `local-model` | | No key: a model inside the job, by its mlx-community name (`Qwen3-8B-4bit`), run with janis. A free first pass; see above |
 | `install` | `true` | `false` uses the `memdoor` already on `PATH` |
 
