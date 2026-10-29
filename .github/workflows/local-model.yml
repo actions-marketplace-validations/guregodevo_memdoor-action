@@ -1,26 +1,27 @@
-# Spike: the review with no key at all, everything in the action. With
-# `local-model:` the action runs the model inside the job (Ollama on the
-# runner's CPU) and connects Memdoor to it; pr-review then runs on a change
-# that plants an off-by-one. The question: does a free runner review a PR in
-# acceptable time, and does a small model find the bug?
-name: Spike - review on a local model
+# local-model as a user's job runs it: janis from its release, the model
+# pulled and cached, Memdoor connected to it, pr-review on a change that
+# plants an off-by-one. On a push, Qwen3-0.6B checks the plumbing (the run
+# ends 0 or 2: a review was written); by hand, any model, timed.
+name: Local model
 
 permissions:
   contents: read
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       model:
-        description: The Ollama model the review runs on
-        default: qwen3.5:9b
+        description: The mlx-community model the review runs on
+        default: Qwen3-8B-4bit
 
 jobs:
   local:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     env:
       MEMDOOR_CI: '1'
+      MODEL: ${{ inputs.model || 'Qwen3-0.6B-4bit' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -41,18 +42,18 @@ jobs:
         uses: ./
         with:
           workflow: pr-review
-          local-model: ${{ inputs.model }}
+          local-model: ${{ env.MODEL }}
           working-directory: ${{ runner.temp }}/calc
-          timeout: 100m
+          timeout: 40m
 
-      - name: Timings
+      - name: The review was written
         if: always()
         run: |
+          code='${{ steps.review.outputs.exit-code }}'
           {
-            echo "### Spike: pr-review on \`${{ inputs.model }}\` inside the job, no key"
-            echo "- total: $(( $(date +%s) - T0 )) s (setup + model + review; per step times in the log)"
-            echo "- exit-code: ${{ steps.review.outputs.exit-code }} (2 = a P0 found, which is the planted bug)"
-            echo "- runner: $(nproc) vCPU, $(free -g | awk '/Mem:/{print $2}') GB RAM"
+            echo "### pr-review on \`$MODEL\` inside the job, no key"
+            echo "- total: $(( $(date +%s) - T0 )) s (janis, the model, the review)"
+            echo "- exit-code: $code (2 = a P0, the planted bug)"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "--- ollama log tail"; tail -15 "$RUNNER_TEMP/memdoor-ollama.log" 2>/dev/null || true
-          echo "--- memdoor errors"; memdoor logs errors --since 2h 2>&1 | tail -20 || true
+          echo "--- janis log tail"; grep -v '^repack' "$RUNNER_TEMP/memdoor-janis.log" | tail -15 || true
+          case "$code" in 0|2) ;; *) echo "::error::the run ended $code, not a written review"; exit 1 ;; esac

@@ -65,7 +65,7 @@ inputs:
     description: MEMDOOR_MODEL — pin the model the agents answer with
     default: ''
   local-model:
-    description: 'No key: a model inside the job, by its Ollama name (qwen3.5:9b). The action sets up Ollama on the runner, caches the model and connects it. A free first pass that catches obvious mistakes, not a reviewer: on a CPU, pr-review reviews in one model call and runs nothing to check a finding'
+    description: 'No key: a model inside the job, by its mlx-community name (Qwen3-8B-4bit). The action runs it with janis (github.com/guregodevo/janis, one file) on the runner, caches it and connects it; Linux runners. A free first pass that catches obvious mistakes, not a reviewer: on a CPU, pr-review reviews in one model call and runs nothing to check a finding'
     default: ''
 
 outputs:
@@ -92,30 +92,43 @@ runs:
         curl -fsSL https://memdoor.ai/install.sh | bash
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-    # A model inside the job (local-model): Ollama on the runner, the model
-    # cached between runs, served on localhost only; nothing leaves the job.
+    # A model inside the job (local-model): janis, one file, on the runner's
+    # CPU; the model cached between runs, served on localhost only; nothing
+    # leaves the job.
     - name: Model cache
       if: inputs.local-model != ''
       uses: actions/cache@v4
       with:
-        path: ~/.memdoor-ollama
-        key: memdoor-ollama-${{ runner.os }}-${{ inputs.local-model }}
+        path: ~/.cache/huggingface/hub
+        key: memdoor-janis-${{ runner.os }}-${{ inputs.local-model }}
 
     - name: Local model
       if: inputs.local-model != ''
       shell: bash
       env:
         LOCAL_MODEL: ${{ inputs.local-model }}
+        JANIS_VERSION: v0.1.0
       run: |
-        models="$HOME/.memdoor-ollama"; mkdir -p "$models"
-        if ! command -v ollama >/dev/null; then
-          curl -fsSL https://ollama.com/install.sh | sh >/dev/null
-          sudo systemctl stop ollama 2>/dev/null || true
+        if [ "$RUNNER_OS" != Linux ]; then
+          echo "::error::local-model runs on Linux runners"; exit 1
         fi
-        OLLAMA_MODELS="$models" OLLAMA_HOST=127.0.0.1:11434 OLLAMA_CONTEXT_LENGTH=32768 \
-          nohup ollama serve > "$RUNNER_TEMP/memdoor-ollama.log" 2>&1 &
-        for i in $(seq 1 60); do curl -sf http://127.0.0.1:11434/api/version >/dev/null && break; sleep 1; done
-        OLLAMA_MODELS="$models" ollama pull "$LOCAL_MODEL"
+        case "$LOCAL_MODEL" in
+          # The Ollama names the first version of this input took.
+          qwen3.5:9b) m=Qwen3.5-9B-4bit ;; qwen3:8b) m=Qwen3-8B-4bit ;; qwen3:4b) m=Qwen3-4B-4bit ;;
+          *:*) echo "::error::local-model is an mlx-community name (Qwen3-8B-4bit), not $LOCAL_MODEL"; exit 1 ;;
+          *) m=${LOCAL_MODEL#mlx-community/} ;;
+        esac
+        janis="$RUNNER_TEMP/janis"
+        curl -fsSL -o "$janis" "https://github.com/guregodevo/janis/releases/download/$JANIS_VERSION/janis-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+        chmod +x "$janis"
+        "$janis" pull "$m"
+        JANIS_BACKEND=ggml nohup "$janis" serve --model "$m" > "$RUNNER_TEMP/memdoor-janis.log" 2>&1 &
+        for i in $(seq 1 300); do curl -sf http://127.0.0.1:8090/v1/models >/dev/null && break; sleep 1; done
+        # The first answer lays the weights out for the CPU's kernels (about
+        # half a minute for an 8B on four vCPUs): done here, not in the review.
+        curl -sf --max-time 900 http://127.0.0.1:8090/v1/chat/completions -H 'Content-Type: application/json' \
+          -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"ok\"}],\"max_tokens\":1}" >/dev/null
+        echo "MEMDOOR_LOCAL_MODEL_ID=$m" >> "$GITHUB_ENV"
 
     - name: Run the workflow
       id: run
@@ -163,7 +176,7 @@ runs:
           # The first command starts the gateway and sets the runner up (no
           # model yet, so it answers no); then the local model is its provider.
           memdoor run "ok" >/dev/null 2>&1 || true
-          memdoor connect local --base http://127.0.0.1:11434/v1 --model "$LOCAL_MODEL"
+          memdoor connect local --base http://127.0.0.1:8090/v1 --model "$MEMDOOR_LOCAL_MODEL_ID"
         fi
         args=(workflow run "$WF_NAME" --dir .)
         [ -n "$WF_TIMEOUT" ] && args+=(--timeout "$WF_TIMEOUT")
