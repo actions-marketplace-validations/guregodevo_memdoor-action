@@ -13,7 +13,7 @@ on:
     inputs:
       model:
         description: The mlx-community model the review runs on
-        default: Qwen3.5-9B-4bit
+        default: Qwen3-8B-4bit
 
 jobs:
   local:

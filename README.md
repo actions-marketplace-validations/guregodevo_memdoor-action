@@ -35,19 +35,19 @@ The review, the fix's report or the notes are shown in the job summary.
       - uses: guregodevo/memdoor-action@v1
         with:
           workflow: pr-review
-          local-model: Qwen3.5-9B-4bit
+          local-model: Qwen3-8B-4bit
 ```
 
 **A free first pass, not a reviewer.** A free runner has 4 CPUs and 16 GB, so a 9B model is about the largest that fits, and it reviews in one model call (no agent, nothing run to check a finding). What we measured on `ubuntu-latest`, the same three pull requests on [llamafit](https://github.com/guregodevo/llamafit) reviewed each way:
 
-| | `Qwen3.5-9B-4bit`, no key | your key (OpenRouter) |
+| | `Qwen3-8B-4bit`, no key | your key (OpenRouter) |
 |---|---|---|
-| An obvious bug (a loop that skips the last layer) | P0 on the right line; the reason right once, wrong once | P0, the right reason |
-| A subtle bug (a path built from a lowercased file name) | missed | P0, proved by a test it wrote |
-| The same change done correctly | passed | passed |
-| Review / job | 60 to 106 s / 3 to 5 minutes, most of it the model's download | about 40 s / about 1 minute |
+| An obvious bug (a loop that skips the last layer) | P0, the right reason (2 of 2 runs) | P0, the right reason |
+| A subtle bug (a path built from a lowercased file name) | P0, the right reason (2 of 2) | P0, proved by a test it wrote |
+| The same change done correctly | **a false P0** (2 of 2): it filed the change's own fix as the fault | passed |
+| Review / job | 45 to 90 s / 2 to 3 minutes, most of it the model's download | about 40 s / about 1 minute |
 
-It catches the obvious and stays quiet on correct code. For a review that opens the files around the change and runs the code to prove a finding, use a key. The model (any mlx-community name) is cached per branch: GitHub shares a cache saved on the default branch, so run the workflow once on a push to `main` and every pull request starts from it.
+It catches bugs, and it can fail a correct pull request: read its P0 before you believe it. `Qwen3.5-9B-4bit` is the quiet one (passed the correct change, missed the subtle bug). For a review that opens the files around the change and runs the code to prove a finding, use a key. The model (any mlx-community name) is cached per branch: GitHub shares a cache saved on the default branch, so run the workflow once on a push to `main` and every pull request starts from it.
 
 ### Your own workflow
 
@@ -65,7 +65,7 @@ It catches the obvious and stays quiet on correct code. For a review that opens 
 | `timeout` | `2h` | A clock on the whole run, e.g. `45m` |
 | `partition` | | Resume an earlier run, or a version for `release-notes` (`${{ github.ref_name }}`) |
 | `stop-at-gate` | `true` | A workflow's approval gate ends the job with exit 3 (nobody in CI can approve); `false` waits for an approval from another door, bounded by `timeout` |
-| `local-model` | | No key: a model inside the job, by its mlx-community name (`Qwen3.5-9B-4bit`), run with janis. A free first pass; see above |
+| `local-model` | | No key: a model inside the job, by its mlx-community name (`Qwen3-8B-4bit`), run with janis. A free first pass; see above |
 | `install` | `true` | `false` uses the `memdoor` already on `PATH` |
 
 ## Outputs and exit codes
