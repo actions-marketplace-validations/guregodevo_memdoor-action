@@ -10,9 +10,10 @@
 #       workflow: pr-review
 #       openrouter-api-key: ${{ secrets.OPEN_ROUTER_API_KEY }}
 #
-# Built in, with no file in your repo: pr-review (fails on a blocker only),
-# fix-tests (leaves the fix in the working tree), release-notes. A workflow
-# of your own is .memdoor/workflows/<name>/ in the repo.
+# Built in, with no file in your repo: pr-review and security-review (fail on
+# a blocker only), write-tests, pr-description, explain-failure (on a failed
+# workflow_run), issue-triage, fix-tests (leaves the fix in the working tree),
+# release-notes. A workflow of your own is .memdoor/workflows/<name>/ in the repo.
 #
 # Your key: the agent runs the repo's code on the runner, where the key is.
 # Trigger on pull_request, NEVER pull_request_target: GitHub gives a fork's
@@ -24,7 +25,7 @@
 # Exit: 0 done, 2 a task failed, 1 stopped (timeout), 3 a gate nobody in
 # the job can approve (stop-at-gate, the default; its review is in the log).
 name: Memdoor
-description: Review PRs, fix failing tests and write release notes with an AI agent, on your own model key
+description: Review PRs, write tests, explain CI failures, triage issues and more with an AI agent, on your key or a local model
 author: guregodevo
 branding:
   icon: git-merge
@@ -64,8 +65,11 @@ inputs:
   model:
     description: MEMDOOR_MODEL — pin the model the agents answer with
     default: ''
+  github-token:
+    description: 'GH_TOKEN for the run: the workflows that read GitHub (explain-failure reads a failed run''s logs, issue-triage the issue and the labels) use gh with it. The job''s own token by default; what it may do is what the job''s permissions grant'
+    default: ${{ github.token }}
   local-model:
-    description: 'No key at all: a model that runs inside the job, by its Ollama name (e.g. qwen3.5:9b). The action sets up Ollama on the runner, caches and pulls the model, and connects it (memdoor connect local). Slow on a CPU runner; small models answer faster'
+    description: 'No key: a model inside the job, by its mlx-community name (Qwen3-8B-4bit). The action runs it with janis (github.com/guregodevo/janis, one file) on the runner, caches it and connects it; Linux runners. A free first pass that catches obvious mistakes, not a reviewer: on a CPU, pr-review reviews in one model call and runs nothing to check a finding'
     default: ''
 
 outputs:
@@ -92,30 +96,31 @@ runs:
         curl -fsSL https://memdoor.ai/install.sh | bash
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-    # A model inside the job (local-model): Ollama on the runner, the model
-    # cached between runs, served on localhost only; nothing leaves the job.
+    # A model inside the job (local-model): janis, one file, on the runner's
+    # CPU; the model cached between runs, served on localhost only; nothing
+    # leaves the job.
     - name: Model cache
       if: inputs.local-model != ''
       uses: actions/cache@v4
       with:
-        path: ${{ runner.temp }}/../memdoor-ollama-models
-        key: memdoor-ollama-${{ runner.os }}-${{ inputs.local-model }}
+        path: ~/.cache/huggingface/hub
+        key: memdoor-janis-${{ runner.os }}-${{ inputs.local-model }}
 
     - name: Local model
       if: inputs.local-model != ''
       shell: bash
       env:
         LOCAL_MODEL: ${{ inputs.local-model }}
+        JANIS_VERSION: v0.1.2
       run: |
-        models="$RUNNER_TEMP/../memdoor-ollama-models"; mkdir -p "$models"
-        if ! command -v ollama >/dev/null; then
-          curl -fsSL https://ollama.com/install.sh | sh >/dev/null
-          sudo systemctl stop ollama 2>/dev/null || true
-        fi
-        OLLAMA_MODELS="$models" OLLAMA_HOST=127.0.0.1:11434 OLLAMA_CONTEXT_LENGTH=32768 \
-          nohup ollama serve > "$RUNNER_TEMP/memdoor-ollama.log" 2>&1 &
-        for i in $(seq 1 60); do curl -sf http://127.0.0.1:11434/api/version >/dev/null && break; sleep 1; done
-        OLLAMA_MODELS="$models" ollama pull "$LOCAL_MODEL"
+        [ "$RUNNER_OS" = Linux ] || { echo "::error::local-model runs on Linux runners"; exit 1; }
+        m=${LOCAL_MODEL#mlx-community/}
+        curl -fsSL "https://github.com/guregodevo/janis/releases/download/$JANIS_VERSION/install.sh" | sh
+        # Pulls the model when the cache has none, and returns once it has
+        # answered: its first answer (laying the weights out for the CPU) is
+        # paid here, not in the review.
+        ~/.local/bin/janis serve --detach --model "$m" --log "$RUNNER_TEMP/janis.log"
+        echo "MEMDOOR_LOCAL_MODEL_ID=$m" >> "$GITHUB_ENV"
 
     - name: Run the workflow
       id: run
@@ -132,6 +137,7 @@ runs:
         KEY_GEMINI: ${{ inputs.gemini-api-key }}
         WF_MODEL: ${{ inputs.model }}
         LOCAL_MODEL: ${{ inputs.local-model }}
+        GH_TOKEN: ${{ inputs.github-token }}
         # The runner's gateway is for this job only: no door on the network.
         MEMDOOR_HOST: localhost
         MEMDOOR_NO_BROWSER: '1'
@@ -142,6 +148,9 @@ runs:
           if [ -n "$KEY_OPENROUTER$KEY_ANTHROPIC$KEY_OPENAI$KEY_GEMINI" ]; then
             echo "::warning::local-model is set: the key inputs are ignored, the review runs on $LOCAL_MODEL inside the job"
           fi
+          # A model on the runner's CPU: a built-in with a one-call version
+          # (pr-review's review-lean) takes it instead of the agent loop.
+          export MEMDOOR_LEAN=1
           unset OPEN_ROUTER_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY \
                 GROQ_API_KEY DEEPSEEK_API_KEY XAI_API_KEY GROK_API_KEY BASETEN_API_KEY TYPESAFE_API_KEY \
                 MEMDOOR_SYSTEMONE_API_KEY AI_GATEWAY_TOKEN
@@ -157,49 +166,18 @@ runs:
 
         memdoor --version
         if [ -n "$LOCAL_MODEL" ]; then
-          # The first command starts the gateway and sets the runner up (no
-          # model yet, so it answers no); then the local model is its provider.
-          memdoor run "ok" >/dev/null 2>&1 || true
-          memdoor connect local --base http://127.0.0.1:11434/v1 --model "$LOCAL_MODEL"
+          memdoor connect local --base http://127.0.0.1:8090/v1 --model "$MEMDOOR_LOCAL_MODEL_ID"
         fi
         args=(workflow run "$WF_NAME" --dir .)
         [ -n "$WF_TIMEOUT" ] && args+=(--timeout "$WF_TIMEOUT")
         [ -n "$WF_PARTITION" ] && args+=(--partition "$WF_PARTITION")
         if [ "$WF_STOP_AT_GATE" = "true" ]; then args+=(--stop-at-gate); else args+=(--wait); fi
 
-        results="$RUNNER_TEMP/memdoor-results.txt"
-        progress="$RUNNER_TEMP/memdoor-progress.txt"
-        # stdout (the results) to a file, stderr (the progress) live to the log.
+        # memdoor writes the job summary and the step outputs itself.
         set +e
-        memdoor "${args[@]}" 2>&1 > "$results" | tee "$progress" >&2
-        code=${PIPESTATUS[0]}
+        memdoor "${args[@]}"
+        code=$?
         set -e
-
-        id=$(grep -oE 'started as [^ ]+' "$progress" | head -1 | cut -d' ' -f3 || true)
-        echo "run-id=$id" >> "$GITHUB_OUTPUT"
-        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
-        { echo "results<<MEMDOOR_RESULTS_EOF"; cat "$results"; echo "MEMDOOR_RESULTS_EOF"; } >> "$GITHUB_OUTPUT"
-        cat "$results"
-
-        {
-          echo "### Memdoor workflow \`$WF_NAME\`"
-          case $code in
-            0) echo "✓ done" ;; 1) echo "■ stopped" ;; 2) echo "✗ failed" ;;
-            3) echo "⏸ stopped at a gate: nobody in this job can approve it" ;;
-            *) echo "✗ memdoor exited $code" ;;
-          esac
-          if [ -n "$id" ]; then
-            echo '```'; memdoor workflow status "$id" 2>&1 || true; echo '```'
-          fi
-          # A Markdown file the run produced (a review, a fix's report, the
-          # notes) is what the person came for: shown as written, 200 KB each.
-          while IFS= read -r f; do
-            case "$f" in *.md) ;; *) continue ;; esac
-            [ -f "$f" ] || continue
-            echo; echo "---"; echo; head -c 200000 "$f"; echo
-          done < "$results"
-        } >> "$GITHUB_STEP_SUMMARY"
-
         # A failed task says why above; a stop or a crash may be the gateway's.
         if [ "$code" != 0 ] && [ "$code" != 2 ] && [ "$code" != 3 ]; then
           echo "::group::gateway errors"; memdoor logs errors --since 6h 2>&1 | tail -40 || true; echo "::endgroup::"
