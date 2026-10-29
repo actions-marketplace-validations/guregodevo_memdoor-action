@@ -1,6 +1,6 @@
 # Memdoor
 
-Review pull requests, fix failing tests and write release notes with an AI agent, as one step of a GitHub job, on your own model key, or with no key on a model inside the job. Nothing to add to your repository.
+Review pull requests, write their tests and descriptions, explain a failed run, triage new issues, fix failing tests and write release notes with an AI agent, as one step of a GitHub job, on your own model key, or with no key on a model inside the job. Nothing to add to your repository.
 
 ```yaml
 on: pull_request
@@ -55,7 +55,7 @@ jobs:
           openrouter-api-key: ${{ secrets.OPEN_ROUTER_API_KEY }}
 ```
 
-`explain-failure` and `issue-triage` read GitHub with `gh` on the job's own token (`github-token`, `actions: read` / `issues: read`).
+`explain-failure` and `issue-triage` read GitHub with `gh` on the job's own token (`github-token`, `actions: read` / `issues: read`). Their triggers (`workflow_run`, `issues`) run the workflow file on the default branch: commit it to `main` before they fire.
 
 ### No key: a model inside the job
 
@@ -77,7 +77,9 @@ jobs:
 | The same change done correctly | **a false P0** (2 of 2): it filed the change's own fix as the fault; with the re-check below, 1 of 2 | passed |
 | Review / job | 45 to 90 s / 2 to 3 minutes, most of it the model's download | about 40 s / about 1 minute |
 
-It catches bugs, and it can fail a correct pull request: read its P0 before you believe it. Each P0 gets a second look on the same model (is it a problem of the code after the change, or before it?), and one about the code before is demoted to P2: on the correct change that turned one of two runs green; the other's "P0" was praise, which the question does not catch. `Qwen3.5-9B-4bit` is the quiet one (passed the correct change, missed the subtle bug). For a review that opens the files around the change and runs the code to prove a finding, use a key. The model (any mlx-community name) is cached per branch: GitHub shares a cache saved on the default branch, so run the workflow once on a push to `main` and every pull request starts from it.
+It catches bugs, and it can fail a correct pull request: read its P0 before you believe it. Each P0 gets a second look on the same model (is it a problem of the code after the change, or before it?), and one about the code before is demoted to P2: on the correct change that turned one of two runs green; the other's "P0" was praise, which the question does not catch. `Qwen3.5-9B-4bit` is the quiet one (passed the correct change, missed the subtle bug). For a review that opens the files around the change and runs the code to prove a finding, use a key.
+
+The other built-ins on the 8B, on GitHub's runners (llamafit [#15](https://github.com/guregodevo/llamafit/pull/15), [#16](https://github.com/guregodevo/llamafit/issues/16), [#17](https://github.com/guregodevo/llamafit/pull/17)): `security-review` failed a planted path traversal and passed the same kind of change done correctly (each of its P0s is asked once more whether the code after the change lets someone read, write or run something they could not before; a no makes it a P2). `explain-failure` named the failing test and the changed loop, `pr-description` lists each changed file, `issue-triage` labelled the issue `bug`. `write-tests` kept no test in ten tries (its tests compile but do not match the code; a test that does not pass is removed and the job stays green, after about a quarter of an hour): writing tests needs a key. The model (any mlx-community name) is cached per branch: GitHub shares a cache saved on the default branch, so run the workflow once on a push to `main` and every pull request starts from it.
 
 ### Your own workflow
 
@@ -106,7 +108,7 @@ Outputs: `run-id`, `exit-code`, `results` (the files the run produced, one per l
 | Exit | Meaning |
 |---|---|
 | 0 | done |
-| 2 | a step failed (for `pr-review`, a P0) |
+| 2 | a step failed: a P0 in `pr-review` or `security-review`, a test showing the change is wrong in `write-tests`, tests still failing after `fix-tests` |
 | 1 | stopped (timeout) |
 | 3 | stopped at an approval gate |
 
