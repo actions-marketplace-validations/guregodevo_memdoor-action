@@ -111,7 +111,7 @@ runs:
       shell: bash
       env:
         LOCAL_MODEL: ${{ inputs.local-model }}
-        JANIS_VERSION: v0.1.0
+        JANIS_VERSION: v0.1.1
       run: |
         if [ "$RUNNER_OS" != Linux ]; then
           echo "::error::local-model runs on Linux runners"; exit 1
