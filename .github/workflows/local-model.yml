@@ -55,5 +55,5 @@ jobs:
             echo "- total: $(( $(date +%s) - T0 )) s (janis, the model, the review)"
             echo "- exit-code: $code (2 = a P0, the planted bug)"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "--- janis log tail"; grep -v '^repack' "$RUNNER_TEMP/memdoor-janis.log" | tail -15 || true
+          echo "--- janis log tail"; grep -v '^repack' "$RUNNER_TEMP/janis.log" | tail -15 || true
           case "$code" in 0|2) ;; *) echo "::error::the run ended $code, not a written review"; exit 1 ;; esac
