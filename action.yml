@@ -111,27 +111,15 @@ runs:
       shell: bash
       env:
         LOCAL_MODEL: ${{ inputs.local-model }}
-        JANIS_VERSION: v0.1.1
+        JANIS_VERSION: v0.1.2
       run: |
-        if [ "$RUNNER_OS" != Linux ]; then
-          echo "::error::local-model runs on Linux runners"; exit 1
-        fi
-        case "$LOCAL_MODEL" in
-          # The Ollama names the first version of this input took.
-          qwen3.5:9b) m=Qwen3.5-9B-4bit ;; qwen3:8b) m=Qwen3-8B-4bit ;; qwen3:4b) m=Qwen3-4B-4bit ;;
-          *:*) echo "::error::local-model is an mlx-community name (Qwen3-8B-4bit), not $LOCAL_MODEL"; exit 1 ;;
-          *) m=${LOCAL_MODEL#mlx-community/} ;;
-        esac
-        janis="$RUNNER_TEMP/janis"
-        curl -fsSL -o "$janis" "https://github.com/guregodevo/janis/releases/download/$JANIS_VERSION/janis-linux-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
-        chmod +x "$janis"
-        "$janis" pull "$m"
-        JANIS_BACKEND=ggml nohup "$janis" serve --model "$m" > "$RUNNER_TEMP/memdoor-janis.log" 2>&1 &
-        for i in $(seq 1 300); do curl -sf http://127.0.0.1:8090/v1/models >/dev/null && break; sleep 1; done
-        # The first answer lays the weights out for the CPU's kernels (about
-        # half a minute for an 8B on four vCPUs): done here, not in the review.
-        curl -sf --max-time 900 http://127.0.0.1:8090/v1/chat/completions -H 'Content-Type: application/json' \
-          -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"ok\"}],\"max_tokens\":1}" >/dev/null
+        [ "$RUNNER_OS" = Linux ] || { echo "::error::local-model runs on Linux runners"; exit 1; }
+        m=${LOCAL_MODEL#mlx-community/}
+        curl -fsSL "https://github.com/guregodevo/janis/releases/download/$JANIS_VERSION/install.sh" | sh
+        # Pulls the model when the cache has none, and returns once it has
+        # answered: its first answer (laying the weights out for the CPU) is
+        # paid here, not in the review.
+        ~/.local/bin/janis serve --detach --model "$m" --log "$RUNNER_TEMP/janis.log"
         echo "MEMDOOR_LOCAL_MODEL_ID=$m" >> "$GITHUB_ENV"
 
     - name: Run the workflow
@@ -178,9 +166,6 @@ runs:
 
         memdoor --version
         if [ -n "$LOCAL_MODEL" ]; then
-          # The first command starts the gateway and sets the runner up (no
-          # model yet, so it answers no); then the local model is its provider.
-          memdoor run "ok" >/dev/null 2>&1 || true
           memdoor connect local --base http://127.0.0.1:8090/v1 --model "$MEMDOOR_LOCAL_MODEL_ID"
         fi
         args=(workflow run "$WF_NAME" --dir .)
@@ -188,39 +173,11 @@ runs:
         [ -n "$WF_PARTITION" ] && args+=(--partition "$WF_PARTITION")
         if [ "$WF_STOP_AT_GATE" = "true" ]; then args+=(--stop-at-gate); else args+=(--wait); fi
 
-        results="$RUNNER_TEMP/memdoor-results.txt"
-        progress="$RUNNER_TEMP/memdoor-progress.txt"
-        # stdout (the results) to a file, stderr (the progress) live to the log.
+        # memdoor writes the job summary and the step outputs itself.
         set +e
-        memdoor "${args[@]}" 2>&1 > "$results" | tee "$progress" >&2
-        code=${PIPESTATUS[0]}
+        memdoor "${args[@]}"
+        code=$?
         set -e
-
-        id=$(grep -oE 'started as [^ ]+' "$progress" | head -1 | cut -d' ' -f3 || true)
-        echo "run-id=$id" >> "$GITHUB_OUTPUT"
-        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
-        { echo "results<<MEMDOOR_RESULTS_EOF"; cat "$results"; echo "MEMDOOR_RESULTS_EOF"; } >> "$GITHUB_OUTPUT"
-        cat "$results"
-
-        {
-          echo "### Memdoor workflow \`$WF_NAME\`"
-          case $code in
-            0) echo "✓ done" ;; 1) echo "■ stopped" ;; 2) echo "✗ failed" ;;
-            3) echo "⏸ stopped at a gate: nobody in this job can approve it" ;;
-            *) echo "✗ memdoor exited $code" ;;
-          esac
-          if [ -n "$id" ]; then
-            echo '```'; memdoor workflow status "$id" 2>&1 || true; echo '```'
-          fi
-          # A Markdown file the run produced (a review, a fix's report, the
-          # notes) is what the person came for: shown as written, 200 KB each.
-          while IFS= read -r f; do
-            case "$f" in *.md) ;; *) continue ;; esac
-            [ -f "$f" ] || continue
-            echo; echo "---"; echo; head -c 200000 "$f"; echo
-          done < "$results"
-        } >> "$GITHUB_STEP_SUMMARY"
-
         # A failed task says why above; a stop or a crash may be the gateway's.
         if [ "$code" != 0 ] && [ "$code" != 2 ] && [ "$code" != 3 ]; then
           echo "::group::gateway errors"; memdoor logs errors --since 6h 2>&1 | tail -40 || true; echo "::endgroup::"
