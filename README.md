@@ -15,7 +15,27 @@ jobs:
           openrouter-api-key: ${{ secrets.OPEN_ROUTER_API_KEY }}
 ```
 
-The runner installs [Memdoor](https://memdoor.ai) (one binary), runs the workflow on your key, and the job ends with the run's outcome. The model never decides whether the job passes; a check does.
+The runner installs [Memdoor](https://memdoor.ai) (one binary), runs the workflow, and the job ends with the run's outcome. The model never decides whether the job passes; a check does.
+
+## Your key or a local model
+
+The model is one input: a key, or a model inside the runner.
+
+```yaml
+      # your key: an agent that reads the code around the change and runs it
+      - uses: guregodevo/memdoor-action@v1
+        with:
+          workflow: pr-review
+          openrouter-api-key: ${{ secrets.OPEN_ROUTER_API_KEY }}
+
+      # no key: a local model, run inside the runner with janis
+      - uses: guregodevo/memdoor-action@v1
+        with:
+          workflow: pr-review
+          local-model: Qwen3-8B-4bit
+```
+
+With `local-model:` there is no secret and no API account, and nothing leaves the runner: a free first pass that catches bugs, not a reviewer (measured [below](#no-key-a-local-model-inside-the-job)). With a key the review is an agent that proves what it finds, on any model you pick.
 
 ## Built-in workflows
 
@@ -57,9 +77,9 @@ jobs:
 
 `explain-failure` and `issue-triage` read GitHub with `gh` on the job's own token (`github-token`, `actions: read` / `issues: read`). Their triggers (`workflow_run`, `issues`) run the workflow file on the default branch: commit it to `main` before they fire.
 
-### No key: a model inside the job
+## No key: a local model inside the job
 
-`local-model:` runs the review on a model inside the runner instead of a key: the action downloads [janis](https://github.com/guregodevo/janis) (one file, nothing installed), pulls and caches the model, and connects Memdoor to it. No secret, no API account, nothing leaves the runner. Linux runners.
+`local-model:` runs any built-in on a model inside the runner instead of a key: the action downloads [janis](https://github.com/guregodevo/janis) (one file, nothing installed), pulls and caches the model, and connects Memdoor to it. No secret, no API account, nothing leaves the runner. Linux runners.
 
 ```yaml
       - uses: guregodevo/memdoor-action@v1
@@ -81,7 +101,7 @@ It catches bugs, and it can fail a correct pull request: read its P0 before you 
 
 The other built-ins on the 8B, on GitHub's runners (llamafit [#15](https://github.com/guregodevo/llamafit/pull/15), [#16](https://github.com/guregodevo/llamafit/issues/16), [#17](https://github.com/guregodevo/llamafit/pull/17)): `security-review` failed a planted path traversal and passed the same kind of change done correctly (each of its P0s is asked once more whether the code after the change lets someone read, write or run something they could not before; a no makes it a P2). `explain-failure` named the failing test and the changed loop, `pr-description` lists each changed file, `issue-triage` labelled the issue `bug`. `write-tests` kept no test in ten tries (its tests compile but do not match the code; a test that does not pass is removed and the job stays green, after about a quarter of an hour): writing tests needs a key. The model (any mlx-community name) is cached per branch: GitHub shares a cache saved on the default branch, so run the workflow once on a push to `main` and every pull request starts from it.
 
-### Your own workflow
+## Your own workflow
 
 `workflow: <name>` runs `.memdoor/workflows/<name>/` from your repository: one YAML file per step (a command, a model call, or an agent turn), each done when its target exists. Ask the Memdoor coder to write one, or see [Workflows](https://memdoor.ai/docs/workflows).
 
