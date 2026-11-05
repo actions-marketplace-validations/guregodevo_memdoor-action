@@ -202,7 +202,7 @@ The result is in the job summary. Nothing is committed, pushed or posted.
 | `stop-at-gate` | `true` | A workflow's approval gate ends the job with exit 3 (nobody in CI can approve); `false` waits for an approval from another door, bounded by `timeout` |
 | `github-token` | the job's token | `GH_TOKEN` for the workflows that read GitHub (`explain-failure`, `issue-triage`); what it may do is what the job's `permissions` grant |
 | `local-model` | | No key: a model inside the job, by its mlx-community name (`Qwen3-8B-4bit`), run with janis. A free first pass; see above |
-| `install` | `true` | `false` uses the `memdoor` already on `PATH` |
+| `install` | `true` | from memdoor.ai; when it does not answer, `git clone` of the latest release tag and `make install`. `false` uses the `memdoor` already on `PATH` |
 
 ## Outputs and exit codes
 

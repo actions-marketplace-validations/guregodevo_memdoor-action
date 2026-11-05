@@ -1,5 +1,6 @@
 # The action as a user's job runs it, installer included: memdoor from
-# memdoor.ai, then four keyless runs, each one's exit code and outputs
+# memdoor.ai (and, in a second leg, built from source as when memdoor.ai does
+# not answer), then four keyless runs, each one's exit code and outputs
 # checked: a workflow that passes (0), one that fails (2), one that stops at
 # its gate (3), and the built-in fix-tests on a suite that already passes
 # (0, nothing changed, no model called).
@@ -21,9 +22,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        # '': from memdoor.ai. A host that does not resolve: the install when
+        # memdoor.ai does not answer, git clone of the latest tag and make install.
+        site: ['', 'https://memdoor.invalid']
+    name: ${{ matrix.os }}${{ matrix.site && ' (memdoor.ai down)' || '' }}
     runs-on: ${{ matrix.os }}
     env:
       MEMDOOR_CI: '1'   # our own test install: kept out of the download count (install.sh ?ci=1)
+      MEMDOOR_ACTION_SITE: ${{ matrix.site }}
     steps:
       - uses: actions/checkout@v5
 
