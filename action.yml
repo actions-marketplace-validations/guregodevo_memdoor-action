@@ -48,7 +48,7 @@ inputs:
     description: 'true: a gate (an external task) ends the job with exit 3. false: wait at it, for a gateway someone approves from (memdoor workflow approve), bounded by timeout'
     default: 'true'
   install:
-    description: 'true: install the latest memdoor from memdoor.ai. false: use the memdoor already on PATH'
+    description: 'true: install the latest memdoor from memdoor.ai (when it does not answer: git clone of the latest release tag, make install). false: use the memdoor already on PATH'
     default: 'true'
   openrouter-api-key:
     description: OPEN_ROUTER_API_KEY — one key, every model on OpenRouter
@@ -93,7 +93,31 @@ runs:
         if [ "$RUNNER_OS" = "Windows" ]; then
           echo "::error::the Memdoor workflow action runs on Linux and macOS runners"; exit 1
         fi
-        curl -fsSL https://memdoor.ai/install.sh | bash
+        # memdoor.ai first, twice; when it does not answer (2026-11-05: nginx
+        # down, then a 504), built from source as the README says: git clone of
+        # the latest release tag, make install. MEMDOOR_ACTION_SITE is for the
+        # self-test.
+        site="${MEMDOOR_ACTION_SITE:-https://memdoor.ai}"
+        from_site() {
+          curl -fsSL --max-time 30 "$site/install.sh" -o "$RUNNER_TEMP/memdoor-install.sh" &&
+            bash "$RUNNER_TEMP/memdoor-install.sh"
+        }
+        if ! from_site && ! { sleep 10; from_site; }; then
+          repo=https://github.com/guregodevo/memdoor
+          tag=$(git ls-remote --tags --refs "$repo" 'v*' | sed 's|.*refs/tags/||' | sort -V | tail -n1)
+          echo "::warning::$site did not answer: memdoor $tag built from $repo"
+          src="$RUNNER_TEMP/memdoor-src"
+          git clone -q --depth 1 --branch "$tag" "$repo" "$src"
+          # make install: the same script as memdoor.ai's install.sh installs
+          # the build (memdoor#103). A tag before it has no install target.
+          if grep -q '^install:' "$src/Makefile"; then
+            make -C "$src" install
+          else
+            make -C "$src" build
+            mkdir -p "$HOME/.local/bin"
+            cp "$src/memdoor" "$HOME/.local/bin/memdoor"
+          fi
+        fi
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
     # A model inside the job (local-model): janis, one file, on the runner's
