@@ -89,6 +89,9 @@ runs:
     - name: Install memdoor
       if: inputs.install == 'true'
       shell: bash
+      env:
+        # The runner's download is not an install by a person (install.sh marks it ?ci=1).
+        MEMDOOR_CI: '1'
       run: |
         if [ "$RUNNER_OS" = "Windows" ]; then
           echo "::error::the Memdoor workflow action runs on Linux and macOS runners"; exit 1
@@ -165,6 +168,9 @@ runs:
         # The runner's gateway is for this job only: no door on the network.
         MEMDOOR_HOST: localhost
         MEMDOOR_NO_BROWSER: '1'
+        # A run of the action is not a person: its once-a-day version check
+        # says ?ci=1 (memdoor#182) and is counted nowhere.
+        MEMDOOR_CI: '1'
       run: |
         export PATH="$HOME/.local/bin:$PATH"
         if [ -n "$LOCAL_MODEL" ]; then
