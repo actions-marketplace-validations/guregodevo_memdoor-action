@@ -142,7 +142,16 @@ runs:
       run: |
         [ "$RUNNER_OS" = Linux ] || { echo "::error::local-model runs on Linux runners"; exit 1; }
         m=${LOCAL_MODEL#mlx-community/}
-        curl -fsSL "https://github.com/guregodevo/janis/releases/download/$JANIS_VERSION/install.sh" | sh
+        # Every GitHub download of this step is retried, the installer's own
+        # included (through CURL_HOME): one broke mid-stream on 2026-11-12
+        # (curl 92, HTTP/2 PROTOCOL_ERROR) and failed the job. The installer
+        # is saved to a file first, so a partial script never runs.
+        export CURL_HOME="$RUNNER_TEMP/janis-curl"
+        mkdir -p "$CURL_HOME"
+        printf 'retry = 5\nretry-all-errors\nretry-delay = 3\n' > "$CURL_HOME/.curlrc"
+        curl -fsSL --max-time 60 "https://github.com/guregodevo/janis/releases/download/$JANIS_VERSION/install.sh" \
+          -o "$RUNNER_TEMP/janis-install.sh"
+        sh "$RUNNER_TEMP/janis-install.sh"
         # Pulls the model when the cache has none, and returns once it has
         # answered: its first answer (laying the weights out for the CPU) is
         # paid here, not in the review.
