@@ -138,7 +138,9 @@ runs:
       shell: bash
       env:
         LOCAL_MODEL: ${{ inputs.local-model }}
-        JANIS_VERSION: v0.1.2
+        # janis's latest release: its fixes reach every job without a new
+        # action release. A tag (v0.1.19) pins one.
+        JANIS_VERSION: latest
       run: |
         [ "$RUNNER_OS" = Linux ] || { echo "::error::local-model runs on Linux runners"; exit 1; }
         m=${LOCAL_MODEL#mlx-community/}
@@ -149,8 +151,9 @@ runs:
         export CURL_HOME="$RUNNER_TEMP/janis-curl"
         mkdir -p "$CURL_HOME"
         printf 'retry = 5\nretry-all-errors\nretry-delay = 3\n' > "$CURL_HOME/.curlrc"
-        curl -fsSL --max-time 60 "https://github.com/guregodevo/janis/releases/download/$JANIS_VERSION/install.sh" \
-          -o "$RUNNER_TEMP/janis-install.sh"
+        if [ "$JANIS_VERSION" = latest ]; then rel=https://github.com/guregodevo/janis/releases/latest/download
+        else rel=https://github.com/guregodevo/janis/releases/download/$JANIS_VERSION; fi
+        curl -fsSL --max-time 60 "$rel/install.sh" -o "$RUNNER_TEMP/janis-install.sh"
         sh "$RUNNER_TEMP/janis-install.sh"
         # Pulls the model when the cache has none, and returns once it has
         # answered: its first answer (laying the weights out for the CPU) is
